@@ -1,0 +1,1414 @@
+--[[
+    ViseHub-V3 NFL Universe Script
+    Written by NG
+--]]
+
+-- // Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local CoreGui = gethui and gethui() or game:GetService("CoreGui")
+
+-- // Variables
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+
+-- // References
+local Character
+local Humanoid
+local HRP
+local RightHand
+local LeftHand
+
+local function UpdateCharacter()
+    Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    Humanoid = Character:WaitForChild("Humanoid")
+    HRP = Character:WaitForChild("HumanoidRootPart")
+    RightHand = Character:WaitForChild("RightHand")
+    LeftHand = Character:WaitForChild("LeftHand")
+end
+
+UpdateCharacter()
+LocalPlayer.CharacterAdded:Connect(UpdateCharacter)
+
+-- // Feature Flags
+local Flags = {
+    -- // Catching
+    FootballMagnets = false,
+    MagnetsYards = 15,
+    PullVector = false,
+    PullVectorYards = 15,
+    AutoCatch = false,
+    BallVacuum = false,
+    VacuumYards = 20,
+    
+    -- // Physics
+    AntiJam = false,
+    NoCollision = false,
+    SpeedBoost = false,
+    SpeedMultiplier = 1.5,
+    GravityControl = false,
+    GravityMultiplier = 0.8,
+    
+    -- // Automatics
+    AutoRush = false,
+    RushYards = 10,
+    AutoRoute = false,
+    AutoThrow = false,
+    ThrowDistance = 30,
+    ThrowPower = 50,
+    AutoDefense = false,
+    AutoJuke = false,
+    
+    -- // QB Aimbot
+    QBAimbot = false,
+    AutoLead = true,
+    PerfectThrow = true,
+    
+    -- // Utilities
+    TeleportToBall = false,
+    StaminaManager = false,
+    VisionMode = false,
+    BallTracker = false,
+    
+    -- // Visuals
+    BallBeam = true,
+    PlayerHighlight = true,
+    ShowCards = true
+}
+
+-- // QB Data
+local QBData = {
+    Position = Vector3.zero,
+    Power = 0,
+    TargetPlayer = nil
+}
+
+local FootballRemote = nil
+local CurrentBeam = nil
+local CurrentHighlight = nil
+
+-- // Utility Functions
+local function RandomHand()
+    return math.random() > 0.5 and RightHand or LeftHand
+end
+
+local function GetClosestPlayer()
+    local MousePos = Vector2.new(Mouse.X, Mouse.Y)
+    local Closest = nil
+    local ClosestDist = math.huge
+    
+    for _, Player in next, Players:GetPlayers() do
+        if Player ~= LocalPlayer and Player.Character then
+            local Head = Player.Character:FindFirstChild("Head")
+            if Head then
+                local ScreenPos, OnScreen = Camera:WorldToViewportPoint(Head.Position)
+                if OnScreen then
+                    local Dist = (Vector2.new(ScreenPos.X, ScreenPos.Y) - MousePos).Magnitude
+                    if Dist < ClosestDist then
+                        ClosestDist = Dist
+                        Closest = Player
+                    end
+                end
+            end
+        end
+    end
+    
+    return Closest
+end
+
+-- // UI Framework
+local UI = {}
+
+function UI:CreateElement(ClassName, Properties)
+    local Element = Instance.new(ClassName)
+    for K, V in next, Properties do
+        if K ~= "Parent" then
+            Element[K] = V
+        end
+    end
+    if Properties.Parent then
+        Element.Parent = Properties.Parent
+    end
+    return Element
+end
+
+function UI:CreateCorner(Parent, Radius)
+    return UI:CreateElement("UICorner", {
+        CornerRadius = UDim.new(0, Radius),
+        Parent = Parent
+    })
+end
+
+function UI:CreateStroke(Parent, Color, Thickness, Transparency)
+    return UI:CreateElement("UIStroke", {
+        Color = Color or Color3.fromRGB(60, 60, 60),
+        Thickness = Thickness or 1,
+        Transparency = Transparency or 0.5,
+        Parent = Parent
+    })
+end
+
+function UI:CreateGradient(Parent, ColorSequence, Rotation)
+    return UI:CreateElement("UIGradient", {
+        Color = ColorSequence,
+        Rotation = Rotation or 90,
+        Parent = Parent
+    })
+end
+
+function UI:Tween(Object, Properties, Duration, Style, Direction)
+    local Tween = TweenService:Create(
+        Object,
+        TweenInfo.new(Duration or 0.3, Style or Enum.EasingStyle.Quad, Direction or Enum.EasingDirection.Out),
+        Properties
+    )
+    Tween:Play()
+    return Tween
+end
+
+-- // Modern Theme Colors
+local Theme = {
+    Primary = Color3.fromRGB(139, 92, 246),
+    Secondary = Color3.fromRGB(236, 72, 153),
+    Accent = Color3.fromRGB(59, 130, 246),
+    Success = Color3.fromRGB(34, 197, 94),
+    Warning = Color3.fromRGB(251, 146, 60),
+    Danger = Color3.fromRGB(239, 68, 68),
+    
+    Background = Color3.fromRGB(10, 10, 15),
+    Surface = Color3.fromRGB(20, 20, 28),
+    SurfaceHover = Color3.fromRGB(28, 28, 38),
+    Border = Color3.fromRGB(45, 45, 60),
+    
+    TextPrimary = Color3.fromRGB(240, 240, 250),
+    TextSecondary = Color3.fromRGB(160, 160, 180),
+    TextMuted = Color3.fromRGB(100, 100, 120)
+}
+
+-- // Main Screen GUI
+local ScreenGui = UI:CreateElement("ScreenGui", {
+    Name = "ViseHub-V3",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    Parent = CoreGui
+})
+
+-- // Info Cards Container
+local CardsContainer = UI:CreateElement("Frame", {
+    Name = "CardsContainer",
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0.35, 0, 0.02, 0),
+    Size = UDim2.new(0.3, 0, 0, 150),
+    Parent = ScreenGui
+})
+
+local CardsLayout = UI:CreateElement("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    Padding = UDim.new(0, 15),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Parent = CardsContainer
+})
+
+-- // Create Info Card Function
+local function CreateInfoCard(Title, Icon, DefaultValue, Color)
+    local Card = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Surface,
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0, 140, 0, 130),
+        Parent = CardsContainer
+    })
+    
+    UI:CreateCorner(Card, 12)
+    local CardStroke = UI:CreateStroke(Card, Color or Theme.Primary, 2, 0.4)
+    
+    -- // Animated Glow
+    local Glow = UI:CreateElement("Frame", {
+        BackgroundColor3 = Color or Theme.Primary,
+        BackgroundTransparency = 0.9,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, -2, 0, -2),
+        Size = UDim2.new(1, 4, 1, 4),
+        ZIndex = 0,
+        Parent = Card
+    })
+    UI:CreateCorner(Glow, 14)
+    
+    -- // Pulse Animation
+    task.spawn(function()
+        while Card.Parent do
+            UI:Tween(Glow, {BackgroundTransparency = 0.7}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+            task.wait(1)
+            UI:Tween(Glow, {BackgroundTransparency = 0.95}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+            task.wait(1)
+        end
+    end)
+    
+    local IconLabel = UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 0, 0, 10),
+        Size = UDim2.new(1, 0, 0, 30),
+        Font = Enum.Font.GothamBold,
+        Text = Icon,
+        TextColor3 = Color or Theme.Primary,
+        TextSize = 24,
+        Parent = Card
+    })
+    
+    local TitleLabel = UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 0, 0, 45),
+        Size = UDim2.new(1, 0, 0, 20),
+        Font = Enum.Font.GothamSemibold,
+        Text = Title,
+        TextColor3 = Theme.TextSecondary,
+        TextSize = 11,
+        Parent = Card
+    })
+    
+    local ValueLabel = UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 0, 0, 70),
+        Size = UDim2.new(1, 0, 0, 40),
+        Font = Enum.Font.GothamBold,
+        Text = tostring(DefaultValue),
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 20,
+        Parent = Card
+    })
+    
+    Card.MouseEnter:Connect(function()
+        UI:Tween(Card, {BackgroundTransparency = 0.05, Size = UDim2.new(0, 145, 0, 135)}, 0.2)
+        UI:Tween(CardStroke, {Thickness = 3, Transparency = 0.2}, 0.2)
+    end)
+    
+    Card.MouseLeave:Connect(function()
+        UI:Tween(Card, {BackgroundTransparency = 0.2, Size = UDim2.new(0, 140, 0, 130)}, 0.2)
+        UI:Tween(CardStroke, {Thickness = 2, Transparency = 0.4}, 0.2)
+    end)
+    
+    return {
+        Card = Card,
+        Value = ValueLabel,
+        Icon = IconLabel,
+        Title = TitleLabel
+    }
+end
+
+-- // Create Cards
+local TargetCard = CreateInfoCard("TARGET", "🎯", "None", Theme.Primary)
+local PowerCard = CreateInfoCard("POWER", "⚡", "0", Theme.Warning)
+local DistanceCard = CreateInfoCard("DISTANCE", "📏", "0 YDS", Theme.Accent)
+
+-- // Main Window
+local MainWindow = UI:CreateElement("Frame", {
+    Name = "MainWindow",
+    BackgroundColor3 = Theme.Background,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0.5, -400, 0.5, -300),
+    Size = UDim2.new(0, 800, 0, 600),
+    Parent = ScreenGui
+})
+
+UI:CreateCorner(MainWindow, 16)
+UI:CreateStroke(MainWindow, Theme.Border, 2, 0.3)
+
+-- // Glassmorphism Effect
+local GlassEffect = UI:CreateElement("Frame", {
+    BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+    BackgroundTransparency = 0.98,
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 1, 0),
+    Parent = MainWindow
+})
+UI:CreateCorner(GlassEffect, 16)
+
+-- // Gradient Overlay
+UI:CreateGradient(MainWindow, ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(139, 92, 246)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(236, 72, 153)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(59, 130, 246))
+}), 45).Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 0.95),
+    NumberSequenceKeypoint.new(1, 0.98)
+})
+
+-- // Top Bar
+local TopBar = UI:CreateElement("Frame", {
+    BackgroundColor3 = Theme.Surface,
+    BackgroundTransparency = 0.3,
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 60),
+    Parent = MainWindow
+})
+
+UI:CreateCorner(TopBar, 16)
+local TopBarStroke = UI:CreateStroke(TopBar, Theme.Primary, 1, 0.7)
+
+-- // Animated Border Effect
+task.spawn(function()
+    while task.wait(0.05) do
+        if TopBarStroke then
+            local Hue = tick() % 5 / 5
+            TopBarStroke.Color = Color3.fromHSV(Hue, 0.6, 1)
+        end
+    end
+end)
+
+-- // Title
+local Title = UI:CreateElement("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 20, 0, 0),
+    Size = UDim2.new(0, 300, 1, 0),
+    Font = Enum.Font.GothamBold,
+    Text = "🏈 NFL UNIVERSE",
+    TextColor3 = Theme.TextPrimary,
+    TextSize = 20,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = TopBar
+})
+
+-- // Subtitle
+local Subtitle = UI:CreateElement("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 20, 0, 28),
+    Size = UDim2.new(0, 300, 0, 20),
+    Font = Enum.Font.Gotham,
+    Text = "ViseHub-V3",
+    TextColor3 = Theme.TextSecondary,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = TopBar
+})
+
+-- // Close Button
+local CloseButton = UI:CreateElement("TextButton", {
+    BackgroundColor3 = Theme.Danger,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -50, 0.5, -15),
+    Size = UDim2.new(0, 30, 0, 30),
+    Font = Enum.Font.GothamBold,
+    Text = "✕",
+    TextColor3 = Color3.white,
+    TextSize = 16,
+    Parent = TopBar
+})
+
+UI:CreateCorner(CloseButton, 8)
+
+CloseButton.MouseButton1Click:Connect(function()
+    UI:Tween(MainWindow, {Size = UDim2.new(0, 0, 0, 0)}, 0.3)
+    task.wait(0.3)
+    ScreenGui:Destroy()
+end)
+
+CloseButton.MouseEnter:Connect(function()
+    UI:Tween(CloseButton, {BackgroundColor3 = Color3.fromRGB(255, 50, 50), Size = UDim2.new(0, 32, 0, 32)}, 0.2)
+end)
+
+CloseButton.MouseLeave:Connect(function()
+    UI:Tween(CloseButton, {BackgroundColor3 = Theme.Danger, Size = UDim2.new(0, 30, 0, 30)}, 0.2)
+end)
+
+-- // Minimize Button
+local MinimizeButton = UI:CreateElement("TextButton", {
+    BackgroundColor3 = Theme.Warning,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -90, 0.5, -15),
+    Size = UDim2.new(0, 30, 0, 30),
+    Font = Enum.Font.GothamBold,
+    Text = "─",
+    TextColor3 = Color3.white,
+    TextSize = 16,
+    Parent = TopBar
+})
+
+UI:CreateCorner(MinimizeButton, 8)
+
+local Minimized = false
+MinimizeButton.MouseButton1Click:Connect(function()
+    Minimized = not Minimized
+    UI:Tween(MainWindow, {Size = Minimized and UDim2.new(0, 800, 0, 60) or UDim2.new(0, 800, 0, 600)}, 0.3)
+end)
+
+MinimizeButton.MouseEnter:Connect(function()
+    UI:Tween(MinimizeButton, {BackgroundColor3 = Color3.fromRGB(255, 180, 80), Size = UDim2.new(0, 32, 0, 32)}, 0.2)
+end)
+
+MinimizeButton.MouseLeave:Connect(function()
+    UI:Tween(MinimizeButton, {BackgroundColor3 = Theme.Warning, Size = UDim2.new(0, 30, 0, 30)}, 0.2)
+end)
+
+-- // Sidebar
+local Sidebar = UI:CreateElement("Frame", {
+    BackgroundColor3 = Theme.Surface,
+    BackgroundTransparency = 0.2,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 0, 0, 60),
+    Size = UDim2.new(0, 180, 1, -60),
+    Parent = MainWindow
+})
+
+UI:CreateStroke(Sidebar, Theme.Border, 1, 0.6)
+
+-- // Content Area
+local ContentArea = UI:CreateElement("ScrollingFrame", {
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 190, 0, 70),
+    Size = UDim2.new(1, -200, 1, -80),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Primary,
+    Parent = MainWindow
+})
+
+local ContentLayout = UI:CreateElement("UIListLayout", {
+    Padding = UDim.new(0, 12),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Parent = ContentArea
+})
+
+ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ContentArea.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 20)
+end)
+
+UI:CreateElement("UIPadding", {
+    PaddingLeft = UDim.new(0, 10),
+    PaddingRight = UDim.new(0, 10),
+    PaddingTop = UDim.new(0, 10),
+    Parent = ContentArea
+})
+
+-- // Tab System
+local Tabs = {}
+local ActiveTab = nil
+
+local TabButtons = UI:CreateElement("Frame", {
+    BackgroundTransparency = 1,
+    Size = UDim2.new(1, 0, 1, 0),
+    Parent = Sidebar
+})
+
+local TabLayout = UI:CreateElement("UIListLayout", {
+    Padding = UDim.new(0, 8),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Parent = TabButtons
+})
+
+UI:CreateElement("UIPadding", {
+    PaddingLeft = UDim.new(0, 12),
+    PaddingRight = UDim.new(0, 12),
+    PaddingTop = UDim.new(0, 15),
+    Parent = TabButtons
+})
+
+-- // Tab Creation Function
+function UI:CreateTab(Name, Icon, LayoutOrder)
+    local TabData = {
+        Name = Name,
+        Content = {},
+        Active = false
+    }
+    
+    local TabButton = UI:CreateElement("TextButton", {
+        BackgroundColor3 = Theme.Surface,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 42),
+        LayoutOrder = LayoutOrder,
+        Font = Enum.Font.GothamSemibold,
+        Text = "",
+        Parent = TabButtons
+    })
+    
+    UI:CreateCorner(TabButton, 10)
+    local TabStroke = UI:CreateStroke(TabButton, Theme.Border, 1, 0.7)
+    
+    local TabIcon = UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 12, 0.5, -10),
+        Size = UDim2.new(0, 20, 0, 20),
+        Font = Enum.Font.GothamBold,
+        Text = Icon,
+        TextColor3 = Theme.TextSecondary,
+        TextSize = 16,
+        Parent = TabButton
+    })
+    
+    local TabLabel = UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 40, 0, 0),
+        Size = UDim2.new(1, -40, 1, 0),
+        Font = Enum.Font.GothamSemibold,
+        Text = Name,
+        TextColor3 = Theme.TextSecondary,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = TabButton
+    })
+    
+    TabButton.MouseEnter:Connect(function()
+        if not TabData.Active then
+            UI:Tween(TabButton, {BackgroundTransparency = 0.2}, 0.2)
+            UI:Tween(TabLabel, {TextColor3 = Theme.TextPrimary}, 0.2)
+            UI:Tween(TabIcon, {TextColor3 = Theme.Primary}, 0.2)
+        end
+    end)
+    
+    TabButton.MouseLeave:Connect(function()
+        if not TabData.Active then
+            UI:Tween(TabButton, {BackgroundTransparency = 0.4}, 0.2)
+            UI:Tween(TabLabel, {TextColor3 = Theme.TextSecondary}, 0.2)
+            UI:Tween(TabIcon, {TextColor3 = Theme.TextSecondary}, 0.2)
+        end
+    end)
+    
+    TabButton.MouseButton1Click:Connect(function()
+        UI:SwitchTab(Name)
+    end)
+    
+    TabData.Button = TabButton
+    TabData.Label = TabLabel
+    TabData.Icon = TabIcon
+    TabData.Stroke = TabStroke
+    
+    Tabs[Name] = TabData
+    
+    return TabData
+end
+
+function UI:SwitchTab(TabName)
+    for Name, Tab in next, Tabs do
+        if Name == TabName then
+            Tab.Active = true
+            UI:Tween(Tab.Button, {BackgroundColor3 = Theme.Primary, BackgroundTransparency = 0}, 0.3)
+            UI:Tween(Tab.Label, {TextColor3 = Color3.white}, 0.3)
+            UI:Tween(Tab.Icon, {TextColor3 = Color3.white}, 0.3)
+            UI:Tween(Tab.Stroke, {Color = Theme.Primary, Transparency = 0.3}, 0.3)
+            
+            for _, Element in next, Tab.Content do
+                Element.Visible = true
+            end
+        else
+            Tab.Active = false
+            UI:Tween(Tab.Button, {BackgroundColor3 = Theme.Surface, BackgroundTransparency = 0.4}, 0.3)
+            UI:Tween(Tab.Label, {TextColor3 = Theme.TextSecondary}, 0.3)
+            UI:Tween(Tab.Icon, {TextColor3 = Theme.TextSecondary}, 0.3)
+            UI:Tween(Tab.Stroke, {Color = Theme.Border, Transparency = 0.7}, 0.3)
+            
+            for _, Element in next, Tab.Content do
+                Element.Visible = false
+            end
+        end
+    end
+    ActiveTab = TabName
+end
+
+-- // Toggle Component
+function UI:CreateToggle(Tab, Label, Flag, Callback)
+    local ToggleFrame = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Surface,
+        BackgroundTransparency = 0.3,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 50),
+        Visible = Tab.Active or false,
+        Parent = ContentArea
+    })
+    
+    UI:CreateCorner(ToggleFrame, 10)
+    UI:CreateStroke(ToggleFrame, Theme.Border, 1, 0.6)
+    
+    UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 0),
+        Size = UDim2.new(1, -70, 1, 0),
+        Font = Enum.Font.GothamSemibold,
+        Text = Label,
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = ToggleFrame
+    })
+    
+    local ToggleButton = UI:CreateElement("TextButton", {
+        BackgroundColor3 = Flags[Flag] and Theme.Success or Theme.Surface,
+        BorderSizePixel = 0,
+        Position = UDim2.new(1, -55, 0.5, -12),
+        Size = UDim2.new(0, 45, 0, 24),
+        Text = "",
+        Parent = ToggleFrame
+    })
+    
+    UI:CreateCorner(ToggleButton, 12)
+    local ToggleStroke = UI:CreateStroke(ToggleButton, Theme.Border, 1.5, 0.4)
+    
+    local ToggleIndicator = UI:CreateElement("Frame", {
+        BackgroundColor3 = Color3.white,
+        BorderSizePixel = 0,
+        Position = Flags[Flag] and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8),
+        Size = UDim2.new(0, 16, 0, 16),
+        Parent = ToggleButton
+    })
+    
+    UI:CreateCorner(ToggleIndicator, 8)
+    
+    ToggleButton.MouseButton1Click:Connect(function()
+        Flags[Flag] = not Flags[Flag]
+        
+        UI:Tween(ToggleButton, {
+            BackgroundColor3 = Flags[Flag] and Theme.Success or Theme.Surface
+        }, 0.3)
+        
+        UI:Tween(ToggleIndicator, {
+            Position = Flags[Flag] and UDim2.new(1, -20, 0.5, -8) or UDim2.new(0, 4, 0.5, -8)
+        }, 0.3, Enum.EasingStyle.Back)
+        
+        UI:Tween(ToggleStroke, {
+            Color = Flags[Flag] and Theme.Success or Theme.Border
+        }, 0.3)
+        
+        if Callback then
+            Callback(Flags[Flag])
+        end
+    end)
+    
+    ToggleFrame.MouseEnter:Connect(function()
+        UI:Tween(ToggleFrame, {BackgroundTransparency = 0.1}, 0.2)
+    end)
+    
+    ToggleFrame.MouseLeave:Connect(function()
+        UI:Tween(ToggleFrame, {BackgroundTransparency = 0.3}, 0.2)
+    end)
+    
+    table.insert(Tab.Content, ToggleFrame)
+    return ToggleFrame
+end
+
+-- // Slider Component
+function UI:CreateSlider(Tab, Label, Flag, Min, Max, Default, Callback)
+    local SliderFrame = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Surface,
+        BackgroundTransparency = 0.3,
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 70),
+        Visible = Tab.Active or false,
+        Parent = ContentArea
+    })
+    
+    UI:CreateCorner(SliderFrame, 10)
+    UI:CreateStroke(SliderFrame, Theme.Border, 1, 0.6)
+    
+    UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 8),
+        Size = UDim2.new(1, -70, 0, 20),
+        Font = Enum.Font.GothamSemibold,
+        Text = Label,
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = SliderFrame
+    })
+    
+    local ValueLabel = UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(1, -60, 0, 8),
+        Size = UDim2.new(0, 50, 0, 20),
+        Font = Enum.Font.GothamBold,
+        Text = tostring(Flags[Flag] or Default),
+        TextColor3 = Theme.Primary,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        Parent = SliderFrame
+    })
+    
+    local SliderBg = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 15, 0, 40),
+        Size = UDim2.new(1, -30, 0, 8),
+        Parent = SliderFrame
+    })
+    
+    UI:CreateCorner(SliderBg, 4)
+    
+    local SliderFill = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Primary,
+        BorderSizePixel = 0,
+        Size = UDim2.new((Flags[Flag] or Default - Min) / (Max - Min), 0, 1, 0),
+        Parent = SliderBg
+    })
+    
+    UI:CreateCorner(SliderFill, 4)
+    
+    local SliderButton = UI:CreateElement("Frame", {
+        BackgroundColor3 = Color3.white,
+        BorderSizePixel = 0,
+        Position = UDim2.new((Flags[Flag] or Default - Min) / (Max - Min), -8, 0.5, -8),
+        Size = UDim2.new(0, 16, 0, 16),
+        Parent = SliderBg
+    })
+    
+    UI:CreateCorner(SliderButton, 8)
+    UI:CreateStroke(SliderButton, Theme.Primary, 2, 0)
+    
+    local Dragging = false
+    
+    SliderBg.InputBegan:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = true
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = false
+        end
+    end)
+    
+    RunService.RenderStepped:Connect(function()
+        if Dragging then
+            local MouseX = Mouse.X
+            local RelativeX = math.clamp(MouseX - SliderBg.AbsolutePosition.X, 0, SliderBg.AbsoluteSize.X)
+            local Percentage = RelativeX / SliderBg.AbsoluteSize.X
+            local Value = math.floor(Min + (Percentage * (Max - Min)) + 0.5)
+            
+            Flags[Flag] = Value
+            ValueLabel.Text = tostring(Value)
+            
+            UI:Tween(SliderFill, {Size = UDim2.new(Percentage, 0, 1, 0)}, 0.1)
+            UI:Tween(SliderButton, {Position = UDim2.new(Percentage, -8, 0.5, -8)}, 0.1)
+            
+            if Callback then
+                Callback(Value)
+            end
+        end
+    end)
+    
+    SliderFrame.MouseEnter:Connect(function()
+        UI:Tween(SliderFrame, {BackgroundTransparency = 0.1}, 0.2)
+    end)
+    
+    SliderFrame.MouseLeave:Connect(function()
+        UI:Tween(SliderFrame, {BackgroundTransparency = 0.3}, 0.2)
+    end)
+    
+    table.insert(Tab.Content, SliderFrame)
+    return SliderFrame
+end
+
+-- // Section Header
+function UI:CreateSection(Tab, Title)
+    local SectionFrame = UI:CreateElement("Frame", {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 35),
+        Visible = Tab.Active or false,
+        Parent = ContentArea
+    })
+    
+    UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 10, 0, 0),
+        Size = UDim2.new(1, -20, 0, 25),
+        Font = Enum.Font.GothamBold,
+        Text = Title:upper(),
+        TextColor3 = Theme.Primary,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = SectionFrame
+    })
+    
+    local Divider = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Border,
+        BackgroundTransparency = 0.5,
+        BorderSizePixel = 0,
+        Position = UDim2.new(0, 10, 1, -2),
+        Size = UDim2.new(1, -20, 0, 2),
+        Parent = SectionFrame
+    })
+    
+    UI:CreateCorner(Divider, 1)
+    
+    table.insert(Tab.Content, SectionFrame)
+    return SectionFrame
+end
+
+-- // Create Tabs
+local CatchingTab = UI:CreateTab("Catching", "🎯", 1)
+local PhysicsTab = UI:CreateTab("Physics", "⚡", 2)
+local AutomaticsTab = UI:CreateTab("Automatics", "🤖", 3)
+local QBAimbotTab = UI:CreateTab("QB Aimbot", "🎮", 4)
+local UtilitiesTab = UI:CreateTab("Utilities", "🔧", 5)
+local VisualsTab = UI:CreateTab("Visuals", "👁️", 6)
+
+-- // Build Catching Tab
+UI:CreateSection(CatchingTab, "Receiving")
+UI:CreateToggle(CatchingTab, "Football Magnets", "FootballMagnets")
+UI:CreateSlider(CatchingTab, "Magnets Distance (Yards)", "MagnetsYards", 0, 50, 15)
+UI:CreateToggle(CatchingTab, "Pull Vector", "PullVector")
+UI:CreateSlider(CatchingTab, "Pull Vector Distance", "PullVectorYards", 0, 60, 15)
+UI:CreateToggle(CatchingTab, "Auto Catch", "AutoCatch")
+UI:CreateToggle(CatchingTab, "Ball Vacuum", "BallVacuum")
+UI:CreateSlider(CatchingTab, "Vacuum Distance", "VacuumYards", 0, 50, 20)
+
+-- // Build Physics Tab
+UI:CreateSection(PhysicsTab, "Movement")
+UI:CreateToggle(PhysicsTab, "Anti Jam", "AntiJam")
+UI:CreateToggle(PhysicsTab, "No Collision", "NoCollision")
+UI:CreateToggle(PhysicsTab, "Speed Boost", "SpeedBoost")
+UI:CreateSlider(PhysicsTab, "Speed Multiplier", "SpeedMultiplier", 0.5, 3, 1.5)
+UI:CreateToggle(PhysicsTab, "Gravity Control", "GravityControl")
+UI:CreateSlider(PhysicsTab, "Gravity Multiplier", "GravityMultiplier", 0.1, 1.5, 0.8)
+
+-- // Build Automatics Tab
+UI:CreateSection(AutomaticsTab, "Offensive")
+UI:CreateToggle(AutomaticsTab, "Auto Rush", "AutoRush")
+UI:CreateSlider(AutomaticsTab, "Rush Distance", "RushYards", 0, 30, 10)
+UI:CreateToggle(AutomaticsTab, "Auto Route", "AutoRoute")
+UI:CreateToggle(AutomaticsTab, "Auto Throw", "AutoThrow")
+UI:CreateSlider(AutomaticsTab, "Throw Distance", "ThrowDistance", 10, 100, 30)
+UI:CreateSlider(AutomaticsTab, "Throw Power", "ThrowPower", 0, 100, 50)
+UI:CreateToggle(AutomaticsTab, "Auto Defense", "AutoDefense")
+UI:CreateToggle(AutomaticsTab, "Auto Juke", "AutoJuke")
+
+-- // Build QB Aimbot Tab
+UI:CreateSection(QBAimbotTab, "Targeting")
+UI:CreateToggle(QBAimbotTab, "QB Aimbot", "QBAimbot")
+UI:CreateToggle(QBAimbotTab, "Auto Lead", "AutoLead")
+UI:CreateToggle(QBAimbotTab, "Perfect Throw", "PerfectThrow")
+
+-- // Build Utilities Tab
+UI:CreateSection(UtilitiesTab, "Tools")
+UI:CreateToggle(UtilitiesTab, "Teleport To Ball", "TeleportToBall")
+UI:CreateToggle(UtilitiesTab, "Stamina Manager", "StaminaManager")
+UI:CreateToggle(UtilitiesTab, "Vision Mode", "VisionMode")
+UI:CreateToggle(UtilitiesTab, "Ball Tracker", "BallTracker")
+
+-- // Build Visuals Tab
+UI:CreateSection(VisualsTab, "Effects")
+UI:CreateToggle(VisualsTab, "Ball Beam", "BallBeam")
+UI:CreateToggle(VisualsTab, "Player Highlight", "PlayerHighlight")
+UI:CreateToggle(VisualsTab, "Show Info Cards", "ShowCards")
+
+-- // Activate First Tab
+UI:SwitchTab("Catching")
+
+-- // Visual Effects Functions
+local function CreateBeam(FromPos, ToPos)
+    if CurrentBeam then
+        local Part0, Part1 = CurrentBeam[1], CurrentBeam[2]
+        if Part0 and Part1 then
+            Part0.Position = FromPos
+            Part1.Position = ToPos
+            return CurrentBeam
+        else
+            for _, Part in next, CurrentBeam do
+                if Part then
+                    Part:Destroy()
+                end
+            end
+            CurrentBeam = nil
+        end
+    end
+    
+    local Attachment0 = Instance.new("Attachment")
+    local Attachment1 = Instance.new("Attachment")
+    
+    local Part0 = Instance.new("Part")
+    Part0.Anchored = true
+    Part0.CanCollide = false
+    Part0.Transparency = 1
+    Part0.Size = Vector3.new(0.1, 0.1, 0.1)
+    Part0.Position = FromPos
+    Part0.Parent = workspace
+    Attachment0.Parent = Part0
+    
+    local Part1 = Instance.new("Part")
+    Part1.Anchored = true
+    Part1.CanCollide = false
+    Part1.Transparency = 1
+    Part1.Size = Vector3.new(0.1, 0.1, 0.1)
+    Part1.Position = ToPos
+    Part1.Parent = workspace
+    Attachment1.Parent = Part1
+    
+    local Beam = Instance.new("Beam")
+    Beam.Attachment0 = Attachment0
+    Beam.Attachment1 = Attachment1
+    Beam.FaceCamera = true
+    Beam.Width0 = 1.2
+    Beam.Width1 = 1.2
+    Beam.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(0.5, 0),
+        NumberSequenceKeypoint.new(1, 0.1)
+    })
+    Beam.Color = ColorSequence.new(Color3.fromRGB(0, 255, 0))
+    Beam.LightEmission = 1.5
+    Beam.LightInfluence = 0
+    Beam.Texture = "rbxasset://textures/Particles/Sparkles_main.dds"
+    Beam.TextureMode = Enum.TextureMode.Stretch
+    Beam.TextureLength = 1
+    Beam.TextureSpeed = 3
+    Beam.Parent = Part0
+    
+    CurrentBeam = {Part0, Part1, Beam}
+    
+    return CurrentBeam
+end
+
+local function RemoveBeam()
+    if CurrentBeam then
+        for _, Part in next, CurrentBeam do
+            if Part then
+                Part:Destroy()
+            end
+        end
+        CurrentBeam = nil
+    end
+end
+
+local function CreateHighlight(Character)
+    if CurrentHighlight then
+        CurrentHighlight:Destroy()
+    end
+    
+    local Highlight = Instance.new("Highlight")
+    Highlight.FillColor = Color3.fromRGB(236, 72, 153)
+    Highlight.OutlineColor = Color3.fromRGB(139, 92, 246)
+    Highlight.FillTransparency = 0.5
+    Highlight.OutlineTransparency = 0
+    Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    Highlight.Parent = Character
+    
+    CurrentHighlight = Highlight
+    
+    -- // Pulse Effect
+    task.spawn(function()
+        while Highlight.Parent do
+            UI:Tween(Highlight, {FillTransparency = 0.3}, 0.8, Enum.EasingStyle.Sine)
+            task.wait(0.8)
+            UI:Tween(Highlight, {FillTransparency = 0.7}, 0.8, Enum.EasingStyle.Sine)
+            task.wait(0.8)
+        end
+    end)
+    
+    return Highlight
+end
+
+local function RemoveHighlight()
+    if CurrentHighlight then
+        CurrentHighlight:Destroy()
+        CurrentHighlight = nil
+    end
+end
+
+-- // Draggable Window
+local Dragging = false
+local DragStart = nil
+local StartPos = nil
+
+TopBar.InputBegan:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Dragging = true
+        DragStart = Input.Position
+        StartPos = MainWindow.Position
+    end
+end)
+
+TopBar.InputChanged:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseMovement and Dragging then
+        local Delta = Input.Position - DragStart
+        MainWindow.Position = UDim2.new(
+            StartPos.X.Scale,
+            StartPos.X.Offset + Delta.X,
+            StartPos.Y.Scale,
+            StartPos.Y.Offset + Delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Dragging = false
+    end
+end)
+
+-- // Hotkey Toggle
+UserInputService.InputBegan:Connect(function(Input, Gpe)
+    if Gpe then return end
+    if Input.KeyCode == Enum.KeyCode.RightControl then
+        MainWindow.Visible = not MainWindow.Visible
+    end
+end)
+
+-- // Feature Implementations
+
+-- // Football Magnets
+task.spawn(function()
+    while task.wait(0.5) do
+        if Flags.FootballMagnets and HRP and Character then
+            for _, Object in next, workspace:GetDescendants() do
+                if Object.Name == "Football" and Object:IsA("BasePart") then
+                    local Distance = (HRP.Position - Object.Position).Magnitude
+                    if Distance <= Flags.MagnetsYards then
+                        local Hand = RandomHand()
+                        if Hand then
+                            firetouchinterest(Hand, Object, 1)
+                            task.wait()
+                            firetouchinterest(Hand, Object, 0)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Pull Vector
+task.spawn(function()
+    while task.wait(0.5) do
+        if Flags.PullVector and HRP then
+            for _, Object in next, workspace:GetDescendants() do
+                if Object.Name == "Football" and Object:IsA("BasePart") then
+                    local Distance = (HRP.Position - Object.Position).Magnitude
+                    if Distance <= Flags.PullVectorYards then
+                        HRP.CFrame = CFrame.new(Object.Position + Vector3.new(0, 3, 0))
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Auto Catch
+task.spawn(function()
+    while task.wait(0.3) do
+        if Flags.AutoCatch and Character then
+            for _, Object in next, workspace:GetDescendants() do
+                if Object.Name == "Football" and Object:IsA("BasePart") then
+                    local Hand = RandomHand()
+                    if Hand then
+                        firetouchinterest(Hand, Object, 1)
+                        task.wait(0.1)
+                        firetouchinterest(Hand, Object, 0)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Ball Vacuum
+task.spawn(function()
+    while task.wait(0.3) do
+        if Flags.BallVacuum and HRP then
+            for _, Object in next, workspace:GetDescendants() do
+                if Object.Name == "Football" and Object:IsA("BasePart") then
+                    local Distance = (HRP.Position - Object.Position).Magnitude
+                    if Distance <= Flags.VacuumYards then
+                        Object.CFrame = HRP.CFrame + HRP.CFrame.LookVector * 5
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Anti Jam & No Collision
+task.spawn(function()
+    while task.wait(0.5) do
+        if (Flags.AntiJam or Flags.NoCollision) and Character then
+            for _, Part in next, Character:GetDescendants() do
+                if Part:IsA("BasePart") then
+                    Part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+-- // Speed Boost
+RunService.RenderStepped:Connect(function()
+    if Flags.SpeedBoost and Humanoid then
+        Humanoid.WalkSpeed = 16 * Flags.SpeedMultiplier
+    elseif Humanoid then
+        Humanoid.WalkSpeed = 16
+    end
+end)
+
+-- // Gravity Control
+RunService.RenderStepped:Connect(function()
+    if Flags.GravityControl and HRP then
+        HRP.AssemblyLinearVelocity = HRP.AssemblyLinearVelocity * Vector3.new(1, Flags.GravityMultiplier, 1)
+    end
+end)
+
+-- // Auto Rush
+RunService.RenderStepped:Connect(function()
+    if Flags.AutoRush and Humanoid and HRP then
+        for _, Player in next, Players:GetPlayers() do
+            if Player ~= LocalPlayer and Player.Team ~= LocalPlayer.Team and Player.Character then
+                local EnemyHRP = Player.Character:FindFirstChild("HumanoidRootPart")
+                if EnemyHRP then
+                    local Distance = (EnemyHRP.Position - HRP.Position).Magnitude
+                    if Distance <= Flags.RushYards then
+                        local Football = Player.Character:FindFirstChild("Football")
+                        if Football then
+                            Humanoid:MoveTo(Football.Position)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Auto Route
+task.spawn(function()
+    while task.wait(1) do
+        if Flags.AutoRoute and Humanoid and HRP then
+            local RandomDirection = Vector3.new(math.random(-100, 100), 0, math.random(-100, 100)).Unit
+            Humanoid:MoveTo(HRP.Position + RandomDirection * 20)
+        end
+    end
+end)
+
+-- // Auto Defense
+task.spawn(function()
+    while task.wait(0.5) do
+        if Flags.AutoDefense and Humanoid then
+            for _, Player in next, Players:GetPlayers() do
+                if Player ~= LocalPlayer and Player.Character then
+                    local Football = Player.Character:FindFirstChild("Football")
+                    if Football and Player.Character:FindFirstChild("Head") then
+                        Humanoid:MoveTo(Player.Character.Head.Position)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Auto Juke
+task.spawn(function()
+    while task.wait(0.3) do
+        if Flags.AutoJuke and Humanoid and HRP then
+            local Direction = math.random(0, 1) == 0 and -1 or 1
+            Humanoid:MoveTo(HRP.Position + HRP.CFrame.RightVector * Direction * 15)
+        end
+    end
+end)
+
+-- // Teleport To Ball
+task.spawn(function()
+    while task.wait(0.5) do
+        if Flags.TeleportToBall and HRP then
+            for _, Object in next, workspace:GetDescendants() do
+                if Object.Name == "Football" and Object:IsA("BasePart") then
+                    HRP.CFrame = Object.CFrame + Vector3.new(0, 3, 0)
+                    break
+                end
+            end
+        end
+    end
+end)
+
+-- // Stamina Manager
+task.spawn(function()
+    while task.wait(1) do
+        if Flags.StaminaManager and Character then
+            for _, V in next, Character:GetChildren() do
+                if V.Name:match("Stamina") or V.Name:match("Energy") then
+                    if V:IsA("NumberValue") then
+                        V.Value = 100
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- // Find Football Remote
+for _, Object in next, ReplicatedStorage:GetDescendants() do
+    if Object:IsA("RemoteEvent") and Object.Name == "ReEvent" and tostring(Object.Parent.Parent) == "MiniGames" then
+        FootballRemote = Object
+        break
+    end
+end
+
+-- // QB Aimbot & Visuals Loop
+task.spawn(function()
+    while task.wait(0.1) do
+        if Flags.QBAimbot then
+            local ClosestPlayer = GetClosestPlayer()
+            if ClosestPlayer and ClosestPlayer.Character then
+                local Head = ClosestPlayer.Character:FindFirstChild("Head")
+                if Head and HRP then
+                    local Prediction = Head.Velocity * Vector3.new(1.35, 0, 1.35)
+                    local HeadPosition = Head.Position + Prediction
+                    local Distance = (HeadPosition - HRP.Position).Magnitude
+                    
+                    local Gravity = 196.2
+                    local Angle = 45
+                    local RadianAngle = math.rad(Angle)
+                    local A = -0.5 * Gravity
+                    local B = math.tan(RadianAngle) * 100
+                    local C = -Distance
+                    local Discriminant = (B ^ 2) - (4 * A * C)
+                    
+                    local Power
+                    if Discriminant < 0 then
+                        Power = math.sqrt((Distance * Gravity) / math.sin(2 * RadianAngle))
+                    else
+                        Power = (-B + math.sqrt(Discriminant)) / (2 * A)
+                    end
+                    
+                    local PowerScale = 1 + (math.sqrt(Distance) / 1000)
+                    Power = Power * PowerScale
+                    Power = math.clamp(math.round(Power), 0, 100)
+                    
+                    local VerticalDistance
+                    if Distance < 115 then
+                        VerticalDistance = Distance * (math.sqrt(Distance) / 55)
+                    else
+                        VerticalDistance = Distance * (math.sqrt(Distance) / (55 / (Distance / 115)))
+                    end
+                    
+                    QBData.Position = HeadPosition + Vector3.new(0, VerticalDistance, 0)
+                    QBData.Power = Power
+                    QBData.TargetPlayer = ClosestPlayer
+                    
+                    -- // Update Cards
+                    if Flags.ShowCards then
+                        CardsContainer.Visible = true
+                        TargetCard.Value.Text = ClosestPlayer.Name
+                        PowerCard.Value.Text = tostring(Power)
+                        DistanceCard.Value.Text = tostring(math.floor(Distance)) .. " YDS"
+                    else
+                        CardsContainer.Visible = false
+                    end
+                    
+                    -- // Create Beam
+                    if Flags.BallBeam then
+                        if HRP then
+                            CreateBeam(HRP.Position, QBData.Position)
+                        end
+                    else
+                        RemoveBeam()
+                    end
+                    
+                    -- // Create Highlight
+                    if Flags.PlayerHighlight then
+                        CreateHighlight(ClosestPlayer.Character)
+                    else
+                        RemoveHighlight()
+                    end
+                else
+                    RemoveBeam()
+                    RemoveHighlight()
+                    CardsContainer.Visible = false
+                end
+            else
+                RemoveBeam()
+                RemoveHighlight()
+                CardsContainer.Visible = false
+            end
+        else
+            RemoveBeam()
+            RemoveHighlight()
+            CardsContainer.Visible = false
+        end
+    end
+end)
+
+-- // QB Throw Input
+UserInputService.InputBegan:Connect(function(Input, Gpe)
+    if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    
+    if FootballRemote and Flags.QBAimbot then
+        local ThrowArgs = {
+            [1] = "Mechanics",
+            [2] = "ThrowBall",
+            [3] = {
+                ["Target"] = QBData.Position,
+                ["AutoThrow"] = false,
+                ["Power"] = QBData.Power
+            }
+        }
+        FootballRemote:FireServer(unpack(ThrowArgs))
+    end
+end)
+
+-- // Auto Throw
+task.spawn(function()
+    while task.wait(0.5) do
+        if Flags.AutoThrow and FootballRemote then
+            local ClosestPlayer = GetClosestPlayer()
+            if ClosestPlayer and ClosestPlayer.Character then
+                local Head = ClosestPlayer.Character:FindFirstChild("Head")
+                if Head then
+                    FootballRemote:FireServer("Mechanics", "ThrowBall", {
+                        ["Target"] = Head.Position,
+                        ["AutoThrow"] = true,
+                        ["Power"] = Flags.ThrowPower
+                    })
+                end
+            end
+        end
+    end
+end)
+
+-- // Opening Animation
+MainWindow.Size = UDim2.new(0, 0, 0, 0)
+MainWindow.Position = UDim2.new(0.5, 0, 0.5, 0)
+CardsContainer.Visible = false
+
+UI:Tween(MainWindow, {
+    Size = UDim2.new(0, 800, 0, 600),
+    Position = UDim2.new(0.5, -400, 0.5, -300)
+}, 0.5, Enum.EasingStyle.Back)
+
+-- // Notification System
+local function Notify(Text, Duration)
+    local Notification = UI:CreateElement("Frame", {
+        BackgroundColor3 = Theme.Surface,
+        BorderSizePixel = 0,
+        Position = UDim2.new(1, 20, 0, 20),
+        Size = UDim2.new(0, 300, 0, 60),
+        Parent = ScreenGui
+    })
+    
+    UI:CreateCorner(Notification, 10)
+    UI:CreateStroke(Notification, Theme.Primary, 2, 0.3)
+    
+    UI:CreateElement("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = UDim2.new(0, 15, 0, 0),
+        Size = UDim2.new(1, -30, 1, 0),
+        Font = Enum.Font.GothamSemibold,
+        Text = Text,
+        TextColor3 = Theme.TextPrimary,
+        TextSize = 13,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = Notification
+    })
+    
+    UI:Tween(Notification, {Position = UDim2.new(1, -320, 0, 20)}, 0.5, Enum.EasingStyle.Back)
+    
+    task.wait(Duration or 3)
+    
+    UI:Tween(Notification, {Position = UDim2.new(1, 20, 0, 20)}, 0.3)
+    task.wait(0.3)
+    Notification:Destroy()
+end
+
+task.wait(0.6)
+Notify("🏈 ViseHub-V3 Loaded!\n\nPress RightControl To Toggle", 4)
