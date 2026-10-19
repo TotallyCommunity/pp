@@ -1,4 +1,4 @@
--- Tribes 3v3 Hub - Obsidian UI edition
+-- Tribes 3v3 Hub Obsidian UI edition
 -- Silent aim works by rewriting the WeaponAction remote payload (dir / melee hit list)
 
 local success, Library = pcall(function()
