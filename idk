@@ -1,10 +1,17 @@
 -- Tribes 3v3 Hub - Obsidian UI edition
--- Silent aim works by rewriting the WeaponAction remote payload (dir / melee hit list) - camera never moves.
+-- Silent aim works by rewriting the WeaponAction remote payload (dir / melee hit list)
 
-local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
-local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+local success, Library = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/Library.lua"))()
+end)
+
+if not success or not Library then
+    warn("[Tribes Hub] Failed to load Obsidian Library:", Library)
+    return
+end
+
+local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/SaveManager.lua"))()
 
 local Options = Library.Options
 local Toggles = Library.Toggles
