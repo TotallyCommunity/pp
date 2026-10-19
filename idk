@@ -1,10 +1,13 @@
--- Tribes 3v3 Hub - Obsidian UI edition
+if not loadstring and not load then
+    warn("[Tribes Hub] Your executor does not support loadstring/load. Obsidian UI cannot be loaded.")
+    return
+end
 
 local function safeHttpGet(url)
-    local success, result = pcall(function()
+    local ok, result = pcall(function()
         return game:HttpGet(url)
     end)
-    if success and result and #result > 100 then
+    if ok and type(result) == "string" and #result > 200 then
         return result
     end
     return nil
@@ -13,39 +16,31 @@ end
 local function safeLoad(url)
     local source = safeHttpGet(url)
     if not source then
-        warn("[Tribes Hub] Failed to download:", url)
+        warn("[Tribes Hub] Failed to download: " .. tostring(url))
         return nil
     end
 
-    local loadFunc = loadstring or load
-    if not loadFunc then
-        warn("[Tribes Hub] No loadstring/load available")
-        return nil
-    end
-
-    local success, result = pcall(loadFunc, source)
-    if not success or type(result) \~= "function" then
+    local loader = loadstring or load
+    local compileOk, compiled = pcall(loader, source)
+    if not compileOk or type(compiled) \~= "function" then
         warn("[Tribes Hub] Failed to compile library")
         return nil
     end
 
-    local ok, lib = pcall(result)
-    if not ok or not lib then
-        warn("[Tribes Hub] Failed to initialize library:", lib)
+    local runOk, result = pcall(compiled)
+    if not runOk or not result then
+        warn("[Tribes Hub] Failed to run library: " .. tostring(result))
         return nil
     end
 
-    return lib
+    return result
 end
 
 local Library = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/Library.lua")
-if not Library then
-    -- fallback to older main branch
-    Library = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Library.lua")
-end
+    or safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Library.lua")
 
 if not Library then
-    warn("[Tribes Hub] Could not load Obsidian UI. Your executor may be blocking HttpGet or does not support loadstring.")
+    warn("[Tribes Hub] Could not load Obsidian. Your executor is probably missing HttpGet or loadstring.")
     return
 end
 
@@ -55,12 +50,10 @@ local ThemeManager = safeLoad("https://raw.githubusercontent.com/deividcomsono/O
 local SaveManager = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/SaveManager.lua")
     or safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/addons/SaveManager.lua")
 
-if not ThemeManager or not SaveManager then
-    warn("[Tribes Hub] ThemeManager or SaveManager failed to load (UI will still work)")
-end
-
 local Options = Library.Options
 local Toggles = Library.Toggles
+
+-- ============================== REST OF THE SCRIPT ==============================
 
 local Players    = game:GetService("Players")
 local RS         = game:GetService("ReplicatedStorage")
@@ -92,7 +85,6 @@ local function alive()
     return not Library.Unloaded
 end
 
--- ============================== STATE ==============================
 local S = {
     aimEnabled  = true,
     fov         = 120,
@@ -118,7 +110,6 @@ local S = {
     hookLive    = false,
 }
 
--- ============================== GAME REFERENCES ==============================
 local Remotes = RS:WaitForChild("Remotes", 30)
 local WA = Remotes and Remotes:WaitForChild("WeaponAction", 30)
 
@@ -258,7 +249,6 @@ local function meleeHitList()
     return list, scored[1] and scored[1].point or nil
 end
 
--- ============================== REMOTE HOOK ==============================
 local function handleFireServer(self, method, a1, a2)
     if self \~= WA then return end
     if a1 == "Shoot" and S.aimEnabled and type(a2) == "table" and typeof(a2.origin) == "Vector3" then
@@ -299,7 +289,6 @@ if WA then
     installHook()
 end
 
--- ============================== UI ==============================
 local Window = Library:CreateWindow({
     Title = "Tribes Hub",
     Footer = "Obsidian Edition",
@@ -316,7 +305,6 @@ local Tabs = {
     ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
 }
 
--- Aimbot Tab
 do
     local Left = Tabs.Aimbot:AddLeftGroupbox("Silent Aim")
     Left:AddToggle("THAim", {
@@ -332,69 +320,29 @@ do
 
     Left:AddSlider("THFov", {
         Text = "FOV",
-        Min = 10,
-        Max = 500,
-        Default = S.fov,
-        Rounding = 0,
-        Suffix = "px",
+        Min = 10, Max = 500, Default = S.fov, Rounding = 0, Suffix = "px",
         Callback = function(v) S.fov = v end,
     })
 
     Left:AddDropdown("THHit", {
-        Values = { "Head", "Nearest", "Torso" },
+        Values = {"Head", "Nearest", "Torso"},
         Default = 1,
-        Multi = false,
         Text = "Hitpart",
         Callback = function(v) S.hitpart = v end,
     })
 
-    Left:AddToggle("THWall", {
-        Text = "Wall check",
-        Default = S.wallCheck,
-        Callback = function(v) S.wallCheck = v end,
-    })
-
-    Left:AddToggle("THTeam", {
-        Text = "Team check",
-        Default = S.teamCheck,
-        Callback = function(v) S.teamCheck = v end,
-    })
+    Left:AddToggle("THWall", {Text = "Wall check", Default = S.wallCheck, Callback = function(v) S.wallCheck = v end})
+    Left:AddToggle("THTeam", {Text = "Team check", Default = S.teamCheck, Callback = function(v) S.teamCheck = v end})
 
     local Left2 = Tabs.Aimbot:AddLeftGroupbox("Melee")
-    Left2:AddToggle("THMelee", {
-        Text = "Silent melee + reach",
-        Default = S.meleeSilent,
-        Callback = function(v) S.meleeSilent = v end,
-    })
-
-    Left2:AddSlider("THReach", {
-        Text = "Reach",
-        Min = 8,
-        Max = 40,
-        Default = S.meleeRange,
-        Rounding = 0,
-        Suffix = "st",
-        Callback = function(v) S.meleeRange = v end,
-    })
-
-    Left2:AddSlider("THMax", {
-        Text = "Targets",
-        Min = 1,
-        Max = 5,
-        Default = S.maxTargets,
-        Rounding = 0,
-        Callback = function(v) S.maxTargets = v end,
-    })
+    Left2:AddToggle("THMelee", {Text = "Silent melee + reach", Default = S.meleeSilent, Callback = function(v) S.meleeSilent = v end})
+    Left2:AddSlider("THReach", {Text = "Reach", Min = 8, Max = 40, Default = S.meleeRange, Rounding = 0, Suffix = "st", Callback = function(v) S.meleeRange = v end})
+    Left2:AddSlider("THMax", {Text = "Targets", Min = 1, Max = 5, Default = S.maxTargets, Rounding = 0, Callback = function(v) S.maxTargets = v end})
 
     local Right = Tabs.Aimbot:AddRightGroupbox("Indicator")
-    Right:AddToggle("THFovCircle", {
-        Text = "FOV circle",
-        Default = S.fovCircle,
-        Callback = function(v) S.fovCircle = v end,
-    })
+    Right:AddToggle("THFovCircle", {Text = "FOV circle", Default = S.fovCircle, Callback = function(v) S.fovCircle = v end})
 end
 
--- Combat Tab
 do
     local Left = Tabs.Combat:AddLeftGroupbox("Defense")
     Left:AddToggle("THBlock", {
@@ -402,101 +350,37 @@ do
         Default = S.autoBlock,
         Callback = function(v) S.autoBlock = v end,
     }):AddKeyPicker("THBlockKey", {
-        Default = "None",
-        Mode = "Toggle",
-        Text = "Auto Block",
-        NoUI = false,
+        Default = "None", Mode = "Toggle", Text = "Auto Block", NoUI = false,
     })
-
-    Left:AddSlider("THBlockRange", {
-        Text = "Block range",
-        Min = 6,
-        Max = 30,
-        Default = S.blockRange,
-        Rounding = 0,
-        Suffix = "st",
-        Callback = function(v) S.blockRange = v end,
-    })
+    Left:AddSlider("THBlockRange", {Text = "Block range", Min = 6, Max = 30, Default = S.blockRange, Rounding = 0, Suffix = "st", Callback = function(v) S.blockRange = v end})
 
     local Right = Tabs.Combat:AddRightGroupbox("Utility")
-    Right:AddToggle("THReload", {
-        Text = "Auto reload",
-        Default = S.autoReload,
-        Callback = function(v) S.autoReload = v end,
-    })
+    Right:AddToggle("THReload", {Text = "Auto reload", Default = S.autoReload, Callback = function(v) S.autoReload = v end})
 end
 
--- Visuals Tab
 do
     local Left = Tabs.Visuals:AddLeftGroupbox("ESP")
-    Left:AddToggle("THESP", {
-        Text = "ESP",
-        Default = S.esp,
-        Callback = function(v) S.esp = v end,
-    })
-    Left:AddToggle("THESPBox", {
-        Text = "Boxes",
-        Default = S.espBox,
-        Callback = function(v) S.espBox = v end,
-    })
-    Left:AddToggle("THESPName", {
-        Text = "Names",
-        Default = S.espName,
-        Callback = function(v) S.espName = v end,
-    })
-    Left:AddToggle("THESPHealth", {
-        Text = "Health bars",
-        Default = S.espHealth,
-        Callback = function(v) S.espHealth = v end,
-    })
+    Left:AddToggle("THESP", {Text = "ESP", Default = S.esp, Callback = function(v) S.esp = v end})
+    Left:AddToggle("THESPBox", {Text = "Boxes", Default = S.espBox, Callback = function(v) S.espBox = v end})
+    Left:AddToggle("THESPName", {Text = "Names", Default = S.espName, Callback = function(v) S.espName = v end})
+    Left:AddToggle("THESPHealth", {Text = "Health bars", Default = S.espHealth, Callback = function(v) S.espHealth = v end})
 
     local Right = Tabs.Visuals:AddRightGroupbox("Extras")
-    Right:AddToggle("THESPTracer", {
-        Text = "Tracers",
-        Default = S.espTracer,
-        Callback = function(v) S.espTracer = v end,
-    })
-    Right:AddToggle("THESPDist", {
-        Text = "Distance",
-        Default = S.espDist,
-        Callback = function(v) S.espDist = v end,
-    })
-    Right:AddSlider("THESPMax", {
-        Text = "Max distance",
-        Min = 250,
-        Max = 5000,
-        Default = S.espMaxDist,
-        Rounding = 0,
-        Suffix = "st",
-        Callback = function(v) S.espMaxDist = v end,
-    })
+    Right:AddToggle("THESPTracer", {Text = "Tracers", Default = S.espTracer, Callback = function(v) S.espTracer = v end})
+    Right:AddToggle("THESPDist", {Text = "Distance", Default = S.espDist, Callback = function(v) S.espDist = v end})
+    Right:AddSlider("THESPMax", {Text = "Max distance", Min = 250, Max = 5000, Default = S.espMaxDist, Rounding = 0, Suffix = "st", Callback = function(v) S.espMaxDist = v end})
 end
 
--- Movement Tab
 do
     local Left = Tabs.Movement:AddLeftGroupbox("Speed")
-    Left:AddToggle("THSpeed", {
-        Text = "Walk speed",
-        Default = S.speedOn,
-        Callback = function(v) S.speedOn = v end,
-    })
-    Left:AddSlider("THSpeedMult", {
-        Text = "Multiplier",
-        Min = 1,
-        Max = 2.5,
-        Default = S.speedMult,
-        Rounding = 1,
-        Suffix = "x",
-        Callback = function(v) S.speedMult = v end,
-    })
+    Left:AddToggle("THSpeed", {Text = "Walk speed", Default = S.speedOn, Callback = function(v) S.speedOn = v end})
+    Left:AddSlider("THSpeedMult", {Text = "Multiplier", Min = 1, Max = 2.5, Default = S.speedMult, Rounding = 1, Suffix = "x", Callback = function(v) S.speedMult = v end})
 end
 
--- UI Settings
 if ThemeManager and SaveManager then
     ThemeManager:SetLibrary(Library)
     SaveManager:SetLibrary(Library)
     SaveManager:IgnoreThemeSettings()
-    SaveManager:SetIgnoreIndexes({})
     ThemeManager:SetFolder("TribesHub")
     SaveManager:SetFolder("TribesHub/configs")
     SaveManager:BuildConfigSection(Tabs["UI Settings"])
@@ -505,7 +389,7 @@ end
 
 Library:Notify({
     Title = "Tribes Hub",
-    Description = "Loaded - silent aim " .. (S.aimEnabled and "ON" or "off") .. " | Obsidian UI",
+    Description = "Loaded - silent aim " .. (S.aimEnabled and "ON" or "off"),
     Time = 4,
 })
 
@@ -517,20 +401,16 @@ if not S.hookLive then
     })
 end
 
--- ============================== ESP ==============================
-local espMap = {}
-local espDrawings = {}
-
+-- ESP + Combat logic (same as before)
+local espMap, espDrawings = {}, {}
 local function newDrawing(class)
     local ok, d = pcall(Drawing.new, class)
     if ok and d then table.insert(espDrawings, d) end
     return ok and d or nil
 end
-
 local function cleanupDrawings()
     for _, d in ipairs(espDrawings) do pcall(function() d:Remove() end) end
-    espDrawings = {}
-    espMap = {}
+    espDrawings, espMap = {}, {}
 end
 onCleanup(cleanupDrawings)
 
@@ -554,17 +434,8 @@ local function ensure(char)
             tracer = newDrawing("Line"),
             dist = newDrawing("Text"),
         }
-        if e.name then
-            e.name.Size = 13
-            e.name.Center = true
-            e.name.Outline = true
-        end
-        if e.dist then
-            e.dist.Size = 12
-            e.dist.Center = true
-            e.dist.Outline = true
-            e.dist.Color = Color3.fromRGB(230, 230, 230)
-        end
+        if e.name then e.name.Size = 13 e.name.Center = true e.name.Outline = true end
+        if e.dist then e.dist.Size = 12 e.dist.Center = true e.dist.Outline = true e.dist.Color = Color3.fromRGB(230,230,230) end
         if e.hpFill then e.hpFill.Filled = true end
         espMap[char] = e
     end
@@ -572,9 +443,7 @@ local function ensure(char)
 end
 
 local function hide(e)
-    for _, d in pairs(e) do
-        if d then d.Visible = false end
-    end
+    for _, d in pairs(e) do if d then d.Visible = false end end
 end
 
 local function renderESP()
@@ -628,32 +497,32 @@ local function renderESP()
                     end
                     if e.name then
                         e.name.Visible = S.espName
-                        e.name.Position = Vector2.new(x1 + w / 2, y1 - 16)
+                        e.name.Position = Vector2.new(x1 + w/2, y1 - 16)
                         e.name.Text = char.Name
-                        e.name.Color = Color3.fromRGB(255, 255, 255)
+                        e.name.Color = Color3.fromRGB(255,255,255)
                     end
                     if e.hpBack and e.hpFill then
                         local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
                         e.hpBack.Visible = S.espHealth
                         e.hpBack.Position = Vector2.new(x1 + w + 4, y1)
                         e.hpBack.Size = Vector2.new(3, h)
-                        e.hpBack.Color = Color3.fromRGB(20, 20, 20)
+                        e.hpBack.Color = Color3.fromRGB(20,20,20)
                         e.hpBack.Filled = true
                         e.hpFill.Visible = S.espHealth
-                        e.hpFill.Position = Vector2.new(x1 + w + 4, y1 + h * (1 - frac))
-                        e.hpFill.Size = Vector2.new(3, h * frac)
-                        e.hpFill.Color = Color3.fromRGB(80, 220, 110)
+                        e.hpFill.Position = Vector2.new(x1 + w + 4, y1 + h*(1-frac))
+                        e.hpFill.Size = Vector2.new(3, h*frac)
+                        e.hpFill.Color = Color3.fromRGB(80,220,110)
                     end
                     if e.tracer then
                         e.tracer.Visible = S.espTracer
-                        e.tracer.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
-                        e.tracer.To = Vector2.new(x1 + w / 2, y1 + h)
-                        e.tracer.Color = Color3.fromRGB(255, 80, 80)
+                        e.tracer.From = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y)
+                        e.tracer.To = Vector2.new(x1 + w/2, y1 + h)
+                        e.tracer.Color = Color3.fromRGB(255,80,80)
                         e.tracer.Thickness = 1
                     end
                     if e.dist then
                         e.dist.Visible = S.espDist
-                        e.dist.Position = Vector2.new(x1 + w / 2, y1 + h + 2)
+                        e.dist.Position = Vector2.new(x1 + w/2, y1 + h + 2)
                         e.dist.Text = string.format("%dm", math.floor(dist))
                     end
                 else
@@ -669,9 +538,7 @@ local function renderESP()
         if not live[char] then
             hide(e)
             if not char.Parent or not char:IsDescendantOf(workspace) then
-                for _, d in pairs(e) do
-                    if d then pcall(function() d:Remove() end) end
-                end
+                for _, d in pairs(e) do if d then pcall(function() d:Remove() end) end end
                 espMap[char] = nil
             end
         end
@@ -683,15 +550,11 @@ connect(RunService.RenderStepped, function()
     pcall(renderESP)
 end)
 
--- ============================== AUTO BLOCK ==============================
-local blockState = false
-local blockAcc = 0
-
+local blockState, blockAcc = false, 0
 local function toolNow()
     local me = myChar()
     return me and me:FindFirstChildOfClass("Tool") or nil
 end
-
 local function sendBlock(on)
     if not WA then return end
     local tool = toolNow()
@@ -701,7 +564,7 @@ local function sendBlock(on)
     end
     if on == blockState then return end
     local ok = pcall(function()
-        WA:FireServer("Block", { tool = tool, on = on })
+        WA:FireServer("Block", {tool = tool, on = on})
     end)
     if ok then blockState = on end
 end
@@ -736,9 +599,7 @@ connect(RunService.Heartbeat, function(dt)
     sendBlock(want)
 end)
 
--- ============================== AUTO RELOAD ==============================
 local reloadAt = -math.huge
-
 local function autoReloadStep()
     if not S.autoReload then return end
     local now = os.clock()
@@ -755,18 +616,16 @@ local function autoReloadStep()
             vim:SendKeyEvent(false, Enum.KeyCode.R, false, game)
         end)
         if not ok and WA then
-            pcall(function() WA:FireServer("Reload", { tool = tool }) end)
+            pcall(function() WA:FireServer("Reload", {tool = tool}) end)
         end
     end
 end
 
-connect(RunService.Heartbeat, function(dt)
+connect(RunService.Heartbeat, function()
     if not alive() then return end
-    if not S.autoReload then return end
-    autoReloadStep()
+    if S.autoReload then autoReloadStep() end
 end)
 
--- ============================== SPEED ==============================
 local speedApplied = false
 connect(RunService.Heartbeat, function()
     if not alive() then return end
@@ -778,8 +637,7 @@ connect(RunService.Heartbeat, function()
     end
     if S.speedOn then
         if root:GetAttribute("SSlide") \~= nil then return end
-        local target = 21 * S.speedMult
-        root:SetAttribute("SSpeed", target)
+        root:SetAttribute("SSpeed", 21 * S.speedMult)
         speedApplied = true
     elseif speedApplied then
         root:SetAttribute("SSpeed", 21)
@@ -787,10 +645,9 @@ connect(RunService.Heartbeat, function()
     end
 end)
 
--- ============================== CLEANUP ==============================
 onCleanup(function()
     if blockState and WA then
-        pcall(function() WA:FireServer("Block", { tool = toolNow(), on = false }) end)
+        pcall(function() WA:FireServer("Block", {tool = toolNow(), on = false}) end)
         blockState = false
     end
 end)
