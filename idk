@@ -1,17 +1,63 @@
--- Tribes 3v3 Hub Obsidian UI edition
--- Silent aim works by rewriting the WeaponAction remote payload (dir / melee hit list)
+-- Tribes 3v3 Hub - Obsidian UI edition
 
-local success, Library = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/Library.lua"))()
-end)
+local function safeHttpGet(url)
+    local success, result = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if success and result and #result > 100 then
+        return result
+    end
+    return nil
+end
 
-if not success or not Library then
-    warn("[Tribes Hub] Failed to load Obsidian Library:", Library)
+local function safeLoad(url)
+    local source = safeHttpGet(url)
+    if not source then
+        warn("[Tribes Hub] Failed to download:", url)
+        return nil
+    end
+
+    local loadFunc = loadstring or load
+    if not loadFunc then
+        warn("[Tribes Hub] No loadstring/load available")
+        return nil
+    end
+
+    local success, result = pcall(loadFunc, source)
+    if not success or type(result) \~= "function" then
+        warn("[Tribes Hub] Failed to compile library")
+        return nil
+    end
+
+    local ok, lib = pcall(result)
+    if not ok or not lib then
+        warn("[Tribes Hub] Failed to initialize library:", lib)
+        return nil
+    end
+
+    return lib
+end
+
+local Library = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/Library.lua")
+if not Library then
+    -- fallback to older main branch
+    Library = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Library.lua")
+end
+
+if not Library then
+    warn("[Tribes Hub] Could not load Obsidian UI. Your executor may be blocking HttpGet or does not support loadstring.")
     return
 end
 
-local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/SaveManager.lua"))()
+local ThemeManager = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/ThemeManager.lua")
+    or safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/addons/ThemeManager.lua")
+
+local SaveManager = safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/addons/SaveManager.lua")
+    or safeLoad("https://raw.githubusercontent.com/deividcomsono/Obsidian/main/addons/SaveManager.lua")
+
+if not ThemeManager or not SaveManager then
+    warn("[Tribes Hub] ThemeManager or SaveManager failed to load (UI will still work)")
+end
 
 local Options = Library.Options
 local Toggles = Library.Toggles
@@ -446,14 +492,16 @@ do
 end
 
 -- UI Settings
-ThemeManager:SetLibrary(Library)
-SaveManager:SetLibrary(Library)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-ThemeManager:SetFolder("TribesHub")
-SaveManager:SetFolder("TribesHub/configs")
-SaveManager:BuildConfigSection(Tabs["UI Settings"])
-ThemeManager:ApplyToTab(Tabs["UI Settings"])
+if ThemeManager and SaveManager then
+    ThemeManager:SetLibrary(Library)
+    SaveManager:SetLibrary(Library)
+    SaveManager:IgnoreThemeSettings()
+    SaveManager:SetIgnoreIndexes({})
+    ThemeManager:SetFolder("TribesHub")
+    SaveManager:SetFolder("TribesHub/configs")
+    SaveManager:BuildConfigSection(Tabs["UI Settings"])
+    ThemeManager:ApplyToTab(Tabs["UI Settings"])
+end
 
 Library:Notify({
     Title = "Tribes Hub",
