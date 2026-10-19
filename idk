@@ -1,22 +1,13 @@
--- Tribes 3v3 Hub - AngelHub UI edition
--- Requires AngelHubUI.lua (or angel_hub_ui.lua / AngelHub_Universal.lua) in the executor workspace folder.
+-- Tribes 3v3 Hub - Obsidian UI edition
 -- Silent aim works by rewriting the WeaponAction remote payload (dir / melee hit list) - camera never moves.
 
-local Library
-do
-    local names = { "AngelHubUI.lua", "angel_hub_ui.lua", "AngelHub_Universal.lua" }
-    local src
-    for _, n in ipairs(names) do
-        if isfile and isfile(n) then
-            local ok, data = pcall(readfile, n)
-            if ok and type(data) == "string" then src = data; break end
-        end
-    end
-    if not src then
-        error("TribesHub: AngelHubUI.lua not found in the executor workspace folder", 0)
-    end
-    Library = loadstring(src)()
-end
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
 
 local Players    = game:GetService("Players")
 local RS         = game:GetService("ReplicatedStorage")
@@ -25,7 +16,7 @@ local UIS        = game:GetService("UserInputService")
 local LP         = Players.LocalPlayer
 
 local RL = rawget(_G, "STATE")
-if type(RL) ~= "table" then RL = nil end
+if type(RL) \~= "table" then RL = nil end
 
 local function connect(sig, fn)
     if RL then
@@ -38,14 +29,14 @@ end
 local function onCleanup(fn)
     if RL and RL.onCleanup then
         RL.onCleanup(fn)
-    elseif Library and Library.UnloadHooks then
-        table.insert(Library.UnloadHooks, fn)
+    else
+        Library:OnUnload(fn)
     end
 end
 
 local function alive()
     if RL and RL.alive then return RL.alive() end
-    return true
+    return not Library.Unloaded
 end
 
 -- ============================== STATE ==============================
@@ -93,7 +84,7 @@ local function enemyChars()
     local me = myChar()
     if not me then return {} end
     local myMatch = me:GetAttribute("MatchId")
-    if type(myMatch) ~= "string" then myMatch = "" end
+    if type(myMatch) \~= "string" then myMatch = "" end
     local myTeam = me:GetAttribute("Team")
     local out, seen = {}, {}
     local function consider(c)
@@ -102,20 +93,20 @@ local function enemyChars()
         if not hum or hum.Health <= 0 then return end
         if not c:FindFirstChild("Head") then return end
         if S.teamCheck then
-            if myMatch ~= "" then
+            if myMatch \~= "" then
                 local m = c:GetAttribute("MatchId")
-                if type(m) ~= "string" or m == "" or m ~= myMatch then return end
+                if type(m) \~= "string" or m == "" or m \~= myMatch then return end
                 if c:GetAttribute("Team") == myTeam then return end
             else
                 local t = c:GetAttribute("Team")
-                if t ~= nil and t == myTeam then return end
+                if t \~= nil and t == myTeam then return end
             end
         end
         seen[c] = true
         table.insert(out, c)
     end
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then consider(plr.Character) end
+        if plr \~= LP then consider(plr.Character) end
     end
     for _, tag in ipairs({ "Combatant", "Bot", "TrainingDummy" }) do
         for _, m in ipairs(game:GetService("CollectionService"):GetTagged(tag)) do
@@ -216,7 +207,7 @@ end
 
 -- ============================== REMOTE HOOK ==============================
 local function handleFireServer(self, method, a1, a2)
-    if self ~= WA then return end
+    if self \~= WA then return end
     if a1 == "Shoot" and S.aimEnabled and type(a2) == "table" and typeof(a2.origin) == "Vector3" then
         local target, point = pickRangedTarget(a2.origin)
         if target and point then
@@ -256,88 +247,219 @@ if WA then
 end
 
 -- ============================== UI ==============================
-local Window = Library:CreateWindow({ Title = "Tribes Hub", Folder = "TribesHub" })
+local Window = Library:CreateWindow({
+    Title = "Tribes Hub",
+    Footer = "Obsidian Edition",
+    Center = true,
+    AutoShow = true,
+    ShowCustomCursor = true,
+})
 
-local AimTab  = Window:AddTab("Aimbot", "A")
-local ComTab  = Window:AddTab("Combat", "C")
-local VisTab  = Window:AddTab("Visuals", "V")
-local MovTab  = Window:AddTab("Movement", "M")
+local Tabs = {
+    Aimbot   = Window:AddTab("Aimbot", "crosshair"),
+    Combat   = Window:AddTab("Combat", "swords"),
+    Visuals  = Window:AddTab("Visuals", "eye"),
+    Movement = Window:AddTab("Movement", "person-standing"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
 
+-- Aimbot Tab
 do
-    local box = AimTab:AddGroupbox("Left", "Silent Aim")
-    box:AddToggle("THAim", { Text = "Silent aim (ranged)", Default = S.aimEnabled, Callback = function(v)
-        S.aimEnabled = v
-    end }):AddKeybind("THAimKey", { Text = "Toggle key", Default = "None" })
-    box:AddSlider("THFov", { Text = "FOV", Min = 10, Max = 500, Default = S.fov, Suffix = "px", Callback = function(v)
-        S.fov = v
-    end })
-    box:AddDropdown("THHit", { Text = "Hitpart", Values = { "Head", "Nearest", "Torso" }, Default = "Head",
-        Callback = function(v) S.hitpart = v end })
-    box:AddToggle("THWall", { Text = "Wall check", Default = S.wallCheck, Callback = function(v)
-        S.wallCheck = v
-    end })
-    box:AddToggle("THTeam", { Text = "Team check", Default = S.teamCheck, Callback = function(v)
-        S.teamCheck = v
-    end })
+    local Left = Tabs.Aimbot:AddLeftGroupbox("Silent Aim")
+    Left:AddToggle("THAim", {
+        Text = "Silent aim (ranged)",
+        Default = S.aimEnabled,
+        Callback = function(v) S.aimEnabled = v end,
+    }):AddKeyPicker("THAimKey", {
+        Default = "None",
+        Mode = "Toggle",
+        Text = "Silent Aim",
+        NoUI = false,
+    })
 
-    local box2 = AimTab:AddGroupbox("Left", "Melee")
-    box2:AddToggle("THMelee", { Text = "Silent melee + reach", Default = S.meleeSilent, Callback = function(v)
-        S.meleeSilent = v
-    end })
-    box2:AddSlider("THReach", { Text = "Reach", Min = 8, Max = 40, Default = S.meleeRange, Suffix = "st", Callback = function(v)
-        S.meleeRange = v
-    end })
-    box2:AddSlider("THMax", { Text = "Targets", Min = 1, Max = 5, Default = S.maxTargets, Callback = function(v)
-        S.maxTargets = v
-    end })
+    Left:AddSlider("THFov", {
+        Text = "FOV",
+        Min = 10,
+        Max = 500,
+        Default = S.fov,
+        Rounding = 0,
+        Suffix = "px",
+        Callback = function(v) S.fov = v end,
+    })
 
-    local box3 = AimTab:AddGroupbox("Right", "Indicator")
-    box3:AddToggle("THFovCircle", { Text = "FOV circle", Default = S.fovCircle, Callback = function(v)
-        S.fovCircle = v
-    end })
+    Left:AddDropdown("THHit", {
+        Values = { "Head", "Nearest", "Torso" },
+        Default = 1,
+        Multi = false,
+        Text = "Hitpart",
+        Callback = function(v) S.hitpart = v end,
+    })
+
+    Left:AddToggle("THWall", {
+        Text = "Wall check",
+        Default = S.wallCheck,
+        Callback = function(v) S.wallCheck = v end,
+    })
+
+    Left:AddToggle("THTeam", {
+        Text = "Team check",
+        Default = S.teamCheck,
+        Callback = function(v) S.teamCheck = v end,
+    })
+
+    local Left2 = Tabs.Aimbot:AddLeftGroupbox("Melee")
+    Left2:AddToggle("THMelee", {
+        Text = "Silent melee + reach",
+        Default = S.meleeSilent,
+        Callback = function(v) S.meleeSilent = v end,
+    })
+
+    Left2:AddSlider("THReach", {
+        Text = "Reach",
+        Min = 8,
+        Max = 40,
+        Default = S.meleeRange,
+        Rounding = 0,
+        Suffix = "st",
+        Callback = function(v) S.meleeRange = v end,
+    })
+
+    Left2:AddSlider("THMax", {
+        Text = "Targets",
+        Min = 1,
+        Max = 5,
+        Default = S.maxTargets,
+        Rounding = 0,
+        Callback = function(v) S.maxTargets = v end,
+    })
+
+    local Right = Tabs.Aimbot:AddRightGroupbox("Indicator")
+    Right:AddToggle("THFovCircle", {
+        Text = "FOV circle",
+        Default = S.fovCircle,
+        Callback = function(v) S.fovCircle = v end,
+    })
 end
 
+-- Combat Tab
 do
-    local box = ComTab:AddGroupbox("Left", "Defense")
-    box:AddToggle("THBlock", { Text = "Auto block (melee)", Default = S.autoBlock, Callback = function(v)
-        S.autoBlock = v
-    end }):AddKeybind("THBlockKey", { Text = "Toggle key", Default = "None" })
-    box:AddSlider("THBlockRange", { Text = "Block range", Min = 6, Max = 30, Default = S.blockRange, Suffix = "st",
-        Callback = function(v) S.blockRange = v end })
+    local Left = Tabs.Combat:AddLeftGroupbox("Defense")
+    Left:AddToggle("THBlock", {
+        Text = "Auto block (melee)",
+        Default = S.autoBlock,
+        Callback = function(v) S.autoBlock = v end,
+    }):AddKeyPicker("THBlockKey", {
+        Default = "None",
+        Mode = "Toggle",
+        Text = "Auto Block",
+        NoUI = false,
+    })
 
-    local box2 = ComTab:AddGroupbox("Right", "Utility")
-    box2:AddToggle("THReload", { Text = "Auto reload", Default = S.autoReload, Callback = function(v)
-        S.autoReload = v
-    end })
+    Left:AddSlider("THBlockRange", {
+        Text = "Block range",
+        Min = 6,
+        Max = 30,
+        Default = S.blockRange,
+        Rounding = 0,
+        Suffix = "st",
+        Callback = function(v) S.blockRange = v end,
+    })
+
+    local Right = Tabs.Combat:AddRightGroupbox("Utility")
+    Right:AddToggle("THReload", {
+        Text = "Auto reload",
+        Default = S.autoReload,
+        Callback = function(v) S.autoReload = v end,
+    })
 end
 
+-- Visuals Tab
 do
-    local box = VisTab:AddGroupbox("Left", "ESP")
-    box:AddToggle("THESP", { Text = "ESP", Default = S.esp, Callback = function(v) S.esp = v end })
-    box:AddToggle("THESPBox", { Text = "Boxes", Default = S.espBox, Callback = function(v) S.espBox = v end })
-    box:AddToggle("THESPName", { Text = "Names", Default = S.espName, Callback = function(v) S.espName = v end })
-    box:AddToggle("THESPHealth", { Text = "Health bars", Default = S.espHealth, Callback = function(v) S.espHealth = v end })
-    local box3 = VisTab:AddGroupbox("Right", "Extras")
-    box3:AddToggle("THESPTracer", { Text = "Tracers", Default = S.espTracer, Callback = function(v) S.espTracer = v end })
-    box3:AddToggle("THESPDist", { Text = "Distance", Default = S.espDist, Callback = function(v) S.espDist = v end })
-    box3:AddSlider("THESPMax", { Text = "Max distance", Min = 250, Max = 5000, Default = S.espMaxDist, Suffix = "st",
-        Callback = function(v) S.espMaxDist = v end })
+    local Left = Tabs.Visuals:AddLeftGroupbox("ESP")
+    Left:AddToggle("THESP", {
+        Text = "ESP",
+        Default = S.esp,
+        Callback = function(v) S.esp = v end,
+    })
+    Left:AddToggle("THESPBox", {
+        Text = "Boxes",
+        Default = S.espBox,
+        Callback = function(v) S.espBox = v end,
+    })
+    Left:AddToggle("THESPName", {
+        Text = "Names",
+        Default = S.espName,
+        Callback = function(v) S.espName = v end,
+    })
+    Left:AddToggle("THESPHealth", {
+        Text = "Health bars",
+        Default = S.espHealth,
+        Callback = function(v) S.espHealth = v end,
+    })
+
+    local Right = Tabs.Visuals:AddRightGroupbox("Extras")
+    Right:AddToggle("THESPTracer", {
+        Text = "Tracers",
+        Default = S.espTracer,
+        Callback = function(v) S.espTracer = v end,
+    })
+    Right:AddToggle("THESPDist", {
+        Text = "Distance",
+        Default = S.espDist,
+        Callback = function(v) S.espDist = v end,
+    })
+    Right:AddSlider("THESPMax", {
+        Text = "Max distance",
+        Min = 250,
+        Max = 5000,
+        Default = S.espMaxDist,
+        Rounding = 0,
+        Suffix = "st",
+        Callback = function(v) S.espMaxDist = v end,
+    })
 end
 
+-- Movement Tab
 do
-    local box = MovTab:AddGroupbox("Left", "Speed")
-    box:AddToggle("THSpeed", { Text = "Walk speed", Default = S.speedOn, Callback = function(v)
-        S.speedOn = v
-    end })
-    box:AddSlider("THSpeedMult", { Text = "Multiplier", Min = 1, Max = 2.5, Default = S.speedMult, Rounding = 1, Suffix = "x",
-        Callback = function(v) S.speedMult = v end })
+    local Left = Tabs.Movement:AddLeftGroupbox("Speed")
+    Left:AddToggle("THSpeed", {
+        Text = "Walk speed",
+        Default = S.speedOn,
+        Callback = function(v) S.speedOn = v end,
+    })
+    Left:AddSlider("THSpeedMult", {
+        Text = "Multiplier",
+        Min = 1,
+        Max = 2.5,
+        Default = S.speedMult,
+        Rounding = 1,
+        Suffix = "x",
+        Callback = function(v) S.speedMult = v end,
+    })
 end
 
-Window:AddConfigTab()
+-- UI Settings
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+ThemeManager:SetFolder("TribesHub")
+SaveManager:SetFolder("TribesHub/configs")
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
 
-Library:Notify("Tribes Hub", "Loaded - silent aim " .. (S.aimEnabled and "ON" or "off") .. ", AngelHub UI", 4)
+Library:Notify({
+    Title = "Tribes Hub",
+    Description = "Loaded - silent aim " .. (S.aimEnabled and "ON" or "off") .. " | Obsidian UI",
+    Time = 4,
+})
+
 if not S.hookLive then
-    Library:Notify("Tribes Hub", "namecall hook unavailable - load via live-reload", 6)
+    Library:Notify({
+        Title = "Tribes Hub",
+        Description = "namecall hook unavailable - load via live-reload",
+        Time = 6,
+    })
 end
 
 -- ============================== ESP ==============================
@@ -600,7 +722,7 @@ connect(RunService.Heartbeat, function()
         return
     end
     if S.speedOn then
-        if root:GetAttribute("SSlide") ~= nil then return end
+        if root:GetAttribute("SSlide") \~= nil then return end
         local target = 21 * S.speedMult
         root:SetAttribute("SSpeed", target)
         speedApplied = true
@@ -610,7 +732,7 @@ connect(RunService.Heartbeat, function()
     end
 end)
 
--- ============================== MENU KEY / CLEANUP ==============================
+-- ============================== CLEANUP ==============================
 onCleanup(function()
     if blockState and WA then
         pcall(function() WA:FireServer("Block", { tool = toolNow(), on = false }) end)
